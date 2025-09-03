@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, func, ForeignKey
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, func, ForeignKey, Time, Date,Enum
 from sqlalchemy.orm import relationship
 from database import Base
 
@@ -47,25 +47,142 @@ class FacultyDetails(Base):
     # Relationship (optional, allows ORM joins)
     institute = relationship("InstituteDetails", backref="faculties")
 
+class ClassDetails(Base):
+    __tablename__ = "Class_Details"
+
+    class_id = Column(String, primary_key=True, index=True)  
+    grade = Column(String, nullable=False)
+    division = Column(String, nullable=False)
+    batch = Column(String, nullable=False)
+
+    institute_id = Column(String, ForeignKey("Institute_Details.institute_id"), nullable=False)
+
+    isactive = Column(Boolean, default=True)
+    isdelete = Column(Boolean, default=False)
+    createdat = Column(DateTime(timezone=True), server_default=func.now())
+    updatedat = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationship with Institute
+    institute = relationship("InstituteDetails", backref="classes")
+
+class SubjectDetails(Base):
+    __tablename__ = "Subject_Details"
+
+    subject_id = Column(String, primary_key=True, index=True)  # e.g., SUB1, SUB2...
+    subject_name = Column(String, nullable=False, unique=True)
+
+    institute_id = Column(String, ForeignKey("Institute_Details.institute_id"), nullable=False)
+
+    isactive = Column(Boolean, default=True)
+    isdelete = Column(Boolean, default=False)
+    createdat = Column(DateTime(timezone=True), server_default=func.now())
+    updatedat = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationship with Institute
+    institute = relationship("InstituteDetails", backref="subjects")
+
+class FacultySubjectMapping(Base):
+    __tablename__ = "Faculty_Subject_Mapping"
+
+    faculty_id = Column(String, ForeignKey("Faculty_Details.faculty_id"), primary_key=True)
+    subject_id = Column(String, ForeignKey("Subject_Details.subject_id"), primary_key=True)
+
+    isactive = Column(Boolean, default=True)
+    isdelete = Column(Boolean, default=False)
+    createdat = Column(DateTime(timezone=True), server_default=func.now())
+    updatedat = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    faculty = relationship("FacultyDetails", backref="subject_mappings")
+    subject = relationship("SubjectDetails", backref="faculty_mappings")
+
 class StudentDetails(Base):
     __tablename__ = "Student_Details"
 
     student_id = Column(String, primary_key=True, index=True)  # e.g., STU1, STU2...
     student_name = Column(String, nullable=False)
     student_rollnumber = Column(String, nullable=False, unique=True)
-    standard = Column(String, nullable=False)
-    division = Column(String, nullable=False)
-    batch = Column(String, nullable=False)
-    regular_image = Column(String, nullable=True)   # can store file path / URL
-    encoded_image = Column(String, nullable=True)   # can store face encoding (e.g., base64 string)
 
-    # Foreign key to Institute_Details
+    # Image references
+    encode_image_name = Column(String, nullable=True)   # stored encoding filename
+    original_image_name = Column(String, nullable=True) # stored original filename
+
+    # Foreign keys
     institute_id = Column(String, ForeignKey("Institute_Details.institute_id"), nullable=False)
+    class_id = Column(String, ForeignKey("Class_Details.class_id"), nullable=False)
 
-    createdat = Column(DateTime(timezone=True), server_default=func.now())
-    updatedat = Column(DateTime(timezone=True), onupdate=func.now())
     isactive = Column(Boolean, default=True)
     isdelete = Column(Boolean, default=False)
+    createdat = Column(DateTime(timezone=True), server_default=func.now())
+    updatedat = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    institute = relationship("InstituteDetails", backref="students")
+    class_ = relationship("ClassDetails", backref="students")
+
+class TimeSlots(Base):
+    __tablename__ = "Time_Slots"
+
+    timeslot_id = Column(String, primary_key=True, index=True)  # e.g., TS1, TS2...
+    start_time = Column(Time, nullable=False)
+    end_time = Column(Time, nullable=False)
+
+    institute_id = Column(String, ForeignKey("Institute_Details.institute_id"), nullable=False)
+
+    isactive = Column(Boolean, default=True)
+    isdelete = Column(Boolean, default=False)
+    createdat = Column(DateTime(timezone=True), server_default=func.now())
+    updatedat = Column(DateTime(timezone=True), onupdate=func.now())
 
     # Relationship with Institute
-    institute = relationship("InstituteDetails", backref="students")
+    institute = relationship("InstituteDetails", backref="timeslots")
+
+class ScheduleAttendance(Base):
+    __tablename__ = "Schedule_Attendance"
+
+    attendance_id = Column(String, primary_key=True, index=True)  # e.g., ATT1, ATT2...
+
+    # Foreign keys
+    class_id = Column(String, ForeignKey("Class_Details.class_id"), nullable=False)
+    faculty_id = Column(String, ForeignKey("Faculty_Details.faculty_id"), nullable=False)
+    subject_id = Column(String, ForeignKey("Subject_Details.subject_id"), nullable=False)
+    timeslot_id = Column(String, ForeignKey("Time_Slots.timeslot_id"), nullable=False)
+
+    roomnumber = Column(String, nullable=True)
+
+    # Schedule details
+    date = Column(Date, nullable=False)
+    day = Column(String, nullable=False)  # e.g., Monday
+    status = Column(String, nullable=True)  # e.g., "Completed", "Pending", "Cancelled"
+
+    # Attendance-related data
+    uploaded_images_names = Column(String, nullable=True)  # store multiple filenames as CSV/JSON
+
+    isactive = Column(Boolean, default=True)
+    isdelete = Column(Boolean, default=False)
+    createdat = Column(DateTime(timezone=True), server_default=func.now())
+    updatedat = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    class_ = relationship("ClassDetails", backref="attendance_records")
+    faculty = relationship("FacultyDetails", backref="attendance_records")
+    subject = relationship("SubjectDetails", backref="attendance_records")
+    timeslot = relationship("TimeSlots", backref="attendance_records")
+
+class AttendanceData(Base):
+    __tablename__ = "Attendance_Data"
+
+    # Composite primary key (attendance_id + student_id)
+    attendance_id = Column(String, ForeignKey("Schedule_Attendance.attendance_id"), primary_key=True)
+    student_id = Column(String, ForeignKey("Student_Details.student_id"), primary_key=True)
+
+    attendance_status = Column(String, nullable=False)  # e.g., "Present", "Absent", "Late"
+
+    isactive = Column(Boolean, default=True)
+    isdelete = Column(Boolean, default=False)
+    createdat = Column(DateTime(timezone=True), server_default=func.now())
+    updatedat = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    attendance = relationship("ScheduleAttendance", backref="student_attendance")
+    student = relationship("StudentDetails", backref="attendance_records")
