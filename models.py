@@ -149,7 +149,7 @@ class ScheduleAttendance(Base):
     timeslot_id = Column(String, ForeignKey("Time_Slots.timeslot_id"), nullable=False)
 
     roomnumber = Column(String, nullable=True)
-
+    method = Column(String, nullable=True)
     # Schedule details
     date = Column(Date, nullable=False)
     day = Column(String, nullable=False)  # e.g., Monday
@@ -186,3 +186,24 @@ class AttendanceData(Base):
     # Relationships
     attendance = relationship("ScheduleAttendance", backref="student_attendance")
     student = relationship("StudentDetails", backref="attendance_records")
+
+from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, func
+from sqlalchemy.orm import relationship
+from database import Base
+
+class LoggerData(Base):
+    __tablename__ = "Logger_Data"
+
+    log_id = Column(String, primary_key=True, index=True)  # e.g., LOG1, LOG2...
+    title = Column(String, nullable=False)
+    message = Column(String, nullable=False)
+
+    user_id = Column(String, ForeignKey("Login_Authentication.id"), nullable=True)
+
+    isactive = Column(Boolean, default=True)
+    isdelete = Column(Boolean, default=False)
+    createdat = Column(DateTime(timezone=True), server_default=func.now())
+    updatedat = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationship with Login_Authentication (User)
+    user = relationship("LoginAuthentication", backref="logs")
