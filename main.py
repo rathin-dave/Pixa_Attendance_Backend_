@@ -46,18 +46,7 @@ def update_faculty_profile(
 # def get_notifications(user_id: str):
 #     return services.get_notifications(user_id)
 
-# ----------------- ATTENDANCE RECORD -----------------
-# @app.get("/faculty_attendance_record")
-# def get_faculty_attendance_record(user_id: str):
-#     return services.get_faculty_attendance_record(user_id)
 
-# @app.get("/completed_attendance_detail/{id}")
-# def get_completed_attendance_detail(id: str, user_id: str):
-#     return services.get_completed_attendance_detail(id, user_id)
-
-# @app.get("/processed_attendance_detail/{id}")
-# def get_processed_attendance_detail(id: str, user_id: str):
-#     return services.get_processed_attendance_detail(id, user_id)
 
 # @app.put("/processed_attendance_detail/{id}")
 # def update_processed_attendance_detail(id: str, req: ProcessedAttendanceUpdateRequest, user_id: str):
@@ -87,14 +76,11 @@ def image_upload_attendance(req: ImageUploadRequest, user_id: str, db: Session =
 # def get_cctv_attendance(id: str, user_id: str):
 #     return services.get_cctv_attendance(id, user_id)
 
-# ----------------- UNSCHEDULED LECTURE -----------------
-# @app.post("/unschedule_lecture")
-# def create_unschedule_lecture(req: UnscheduleLectureRequest, user_id: str):
-#     return services.create_unschedule_lecture(req, user_id)
+@app.post("/unschedule_lecture")
+def create_unschedule_lecture(req: UnscheduleLectureRequest, user_id: str, db: Session = Depends(get_db)):
+    return services.create_unschedule_lecture(req, user_id, db)
 
-# @app.get("/unschedule_lecture")
-# def get_unschedule_lecture_data(user_id: str):
-#     return services.get_unschedule_lecture_data(user_id)
+
 
 @app.get("/faculty/summary")
 def faculty_summary(

@@ -55,9 +55,6 @@ class ImageUploadRequest(BaseModel):
 # ---------- UNSCHEDULED LECTURE ----------
 class UnscheduleLectureRequest(BaseModel):
     class_id: str
-    roomnumber: str
-    status: str
-    subject: str
-    date: str
-    day: str
     timeslot_id: str
+    subject_id: str
+    classroom: str

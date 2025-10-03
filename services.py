@@ -4,7 +4,7 @@ from database import get_db
 from models import *
 from schemas import *
 from datetime import datetime, timedelta
-from sqlalchemy import func, case, and_
+from sqlalchemy import func, case, and_, desc, text   
 from datetime import date
 from collections import Counter
 import os, base64
@@ -227,6 +227,94 @@ def post_faculty_dashboard(req: FacultyDashboardRequest, user_id: str, db: Sessi
         except Exception:
             timeslot_str = f"{t.start_time}-{t.end_time}"
         timeslot_array.append(timeslot_str)
+    # Get all timeslots for the institute
+    faculty = db.query(FacultyDetails).filter(FacultyDetails.faculty_id == user_id).first()
+    if not faculty:
+        raise HTTPException(status_code=404, detail="Faculty not found")
+    
+    institute_id = faculty.institute_id
+    
+    # Get all timeslots for the institute
+    all_timeslots = (
+        db.query(
+            TimeSlots.timeslot_id,
+            TimeSlots.start_time,
+            TimeSlots.end_time
+        )
+        .filter(
+            TimeSlots.institute_id == institute_id,
+            TimeSlots.isactive == True,
+            TimeSlots.isdelete == False
+        )
+        .order_by(TimeSlots.start_time)
+        .all()
+    )
+    
+    timeslots_data = []
+    for t in all_timeslots:
+        try:
+            timeslot_str = f"{t.start_time.strftime('%H:%M')}-{t.end_time.strftime('%H:%M')}"
+        except Exception:
+            timeslot_str = f"{t.start_time}-{t.end_time}"
+        
+        timeslots_data.append({
+            "timeslot_id": t.timeslot_id,
+            "timeslot": timeslot_str
+        })
+    
+    # Get all classes for the institute
+    all_classes = (
+        db.query(
+            ClassDetails.class_id,
+            ClassDetails.grade,
+            ClassDetails.division,
+            ClassDetails.batch
+        )
+        .filter(
+            ClassDetails.institute_id == institute_id,
+            ClassDetails.isactive == True,
+            ClassDetails.isdelete == False
+        )
+        .order_by(ClassDetails.grade, ClassDetails.division, ClassDetails.batch)
+        .all()
+    )
+    
+    classes_data = []
+    for c in all_classes:
+        class_name = f"{c.grade}-{c.division}"
+        if c.batch:
+            class_name += f"-{c.batch}"
+        
+        classes_data.append({
+            "class_id": c.class_id,
+            "class": class_name
+        })
+    
+    # Get all subjects mapped to faculty
+    faculty_subjects = (
+        db.query(
+            SubjectDetails.subject_id,
+            SubjectDetails.subject_name
+        )
+        .join(FacultySubjectMapping, FacultySubjectMapping.subject_id == SubjectDetails.subject_id)
+        .filter(
+            FacultySubjectMapping.faculty_id == user_id,
+            FacultySubjectMapping.isactive == True,
+            FacultySubjectMapping.isdelete == False,
+            SubjectDetails.isactive == True,
+            SubjectDetails.isdelete == False
+        )
+        .distinct()
+        .all()
+    )
+    
+    subjects_data = []
+    for s in faculty_subjects:
+        subjects_data.append({
+            "subject_id": s.subject_id,
+            "subject_name": s.subject_name
+        })
+    
     # 8) Final response (matches GET structure)
     return {
         "number_of_lecture_per_week": number_of_lecture_per_week,
@@ -235,7 +323,10 @@ def post_faculty_dashboard(req: FacultyDashboardRequest, user_id: str, db: Sessi
         "number_of_processed_attendance": number_of_processed_attendance,
         "schedule_lecture_for_week": schedule_lecture_for_week,
         "timeslots": timeslot_array,
-        "date": str(selected_date)
+        "date": str(selected_date),
+        "timeslots_data": timeslots_data,
+        "classes": classes_data,
+        "subjects": subjects_data
     }
 
 def get_faculty_profile(user_id: str, db: Session = Depends(get_db)):
@@ -323,7 +414,7 @@ def update_faculty_profile(req, user_id: str, db: Session):
     if req.profile_image:
         try:
             # Create directory if it doesn't exist
-            profile_dir = f"./Images/{institute_id}/Profile_Image_Repo"
+            profile_dir = f"./Images/{institute_id}/Profile_Image_Repo/Faculty_Profile/"
             os.makedirs(profile_dir, exist_ok=True)
             
             # Get current profile image filename or create a new one
@@ -559,6 +650,22 @@ def get_student_record(req: ManualAttendanceGetRequest, user_id: str, db: Sessio
     
     # Format student details
     student_list = []
+    
+    # Check attendance status
+    attendance_status = attendance_record.status
+    attendance_method = attendance_record.method
+    
+    # Get attendance data if status is processed or completed
+    attendance_data_dict = {}
+    if attendance_status in ["Processed", "Completed"]:
+        attendance_data = db.query(AttendanceData).filter(
+            AttendanceData.attendance_id == req.attendance_id
+        ).all()
+        
+        # Create a dictionary for quick lookup
+        for data in attendance_data:
+            attendance_data_dict[data.student_id] = data.attendance_status
+    
     for student in students:
         # Get base64 encoded image
         image_base64 = None
@@ -584,20 +691,33 @@ def get_student_record(req: ManualAttendanceGetRequest, user_id: str, db: Sessio
             except Exception as e:
                 print(f"Error reading image file: {e}")
         
-        student_list.append({
+        student_data = {
             "student_id": student.student_id,
             "student_name": student.student_name,
             "roll_number": student.student_rollnumber,
             "image_base64": image_base64,
             "image_path": image_path
-        })
+        }
+        
+        # Add attendance status if available
+        if attendance_status in ["Processed", "Completed"] and student.student_id in attendance_data_dict:
+            student_data["attendance_status"] = attendance_data_dict[student.student_id]
+        
+        student_list.append(student_data)
     
-    return {
+    response = {
         "success": True,
         "message": "Student details retrieved successfully",
         "attendance_id": req.attendance_id,
+        "status": attendance_status,
         "students": student_list
     }
+    
+    # Include method if status is completed
+    if attendance_status == "Completed":
+        response["method"] = attendance_method
+    
+    return response
 
 def post_manual_attendance(req: ManualAttendanceRequest, user_id: str, db: Session = Depends(get_db)):
     # Validate user_id starts with FAC
@@ -781,8 +901,84 @@ def get_cctv_attendance(id: str, user_id: str):
     return {"success": True}
 
 # ----------------- UNSCHEDULED LECTURE -----------------
-def create_unschedule_lecture(req: UnscheduleLectureRequest, user_id: str):
-    return {"success": True, "attendance_id": "ATT1001"}
+def create_unschedule_lecture(req: UnscheduleLectureRequest, user_id: str, db: Session):
+    # Validate faculty ID
+    if not isinstance(user_id, str) or not user_id.upper().startswith("FAC"):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authorized: Faculty ID must start with FAC")
+    
+    # Extract request data
+    class_id = req.class_id
+    timeslot_id = req.timeslot_id
+    subject_id = req.subject_id
+    classroom = req.classroom
+    
+    # Get current date and day
+    current_date = date.today()
+    day_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    current_day = day_names[current_date.weekday()]
+    
+    # Check if a lecture already exists for this timeslot and class
+    existing_lecture = (
+        db.query(ScheduleAttendance)
+        .filter(
+            ScheduleAttendance.class_id == class_id,
+            ScheduleAttendance.timeslot_id == timeslot_id,
+            ScheduleAttendance.date == current_date,
+            ScheduleAttendance.isactive == True,
+            ScheduleAttendance.isdelete == False
+        )
+        .first()
+    )
+    
+    if existing_lecture:
+        # Update existing lecture
+        existing_lecture.faculty_id = user_id
+        existing_lecture.subject_id = subject_id
+        existing_lecture.roomnumber = classroom
+        existing_lecture.updated_at = datetime.now()
+        db.commit()
+        
+        return {
+            "success": True, 
+            "message": "Lecture updated successfully", 
+            "attendance_id": existing_lecture.attendance_id
+        }
+    else:
+        # Try to create the sequence if it doesn't exist
+        db.execute(text("CREATE SEQUENCE IF NOT EXISTS attendance_seq START 1001"))
+        db.commit()
+        
+        # Get the next value from the attendance_seq sequence
+        result = db.execute(text("SELECT nextval('attendance_seq')")).scalar()
+        
+        # Format the attendance ID as "ATT" + sequence number
+        new_attendance_id = f"ATT{result}"
+        
+        # Create new schedule attendance record
+        new_lecture = ScheduleAttendance(
+            attendance_id=new_attendance_id,
+            class_id=class_id,
+            faculty_id=user_id,
+            subject_id=subject_id,
+            timeslot_id=timeslot_id,
+            roomnumber=classroom,
+            date=current_date,
+            day=current_day,
+            status="Pending",
+            isactive=True,
+            isdelete=False,
+            createdat=datetime.now(),
+            updatedat=datetime.now()
+        )
+        
+        db.add(new_lecture)
+        db.commit()
+        
+        return {
+            "success": True, 
+            "message": "Unscheduled lecture created successfully", 
+            "attendance_id": new_attendance_id
+        }
 
 def get_unschedule_lecture_data(user_id: str):
     return {"timeslot": [], "subject": [], "classes": [], "roomnumber": []}
