@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, func, ForeignKey, Time, Date,Enum
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, func, ForeignKey, Time, Date,Enum, Text
 from sqlalchemy.orm import relationship
 from database import Base
 
@@ -6,6 +6,8 @@ class LoginAuthentication(Base):
     __tablename__ = "Login_Authentication"
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    userid = Column(String, nullable=False)   # string type userid
+
     username = Column(String, unique=True, nullable=False, index=True)
     password = Column(String, nullable=False)
     role = Column(String, nullable=False)
@@ -13,6 +15,7 @@ class LoginAuthentication(Base):
     isdelete = Column(Boolean, default=False)
     createdat = Column(DateTime(timezone=True), server_default=func.now())
     updatedat = Column(DateTime(timezone=True), onupdate=func.now())
+
 
 class InstituteDetails(Base):
     __tablename__ = "Institute_Details"
@@ -27,7 +30,6 @@ class InstituteDetails(Base):
     createdat = Column(DateTime(timezone=True), server_default=func.now())
     updatedat = Column(DateTime(timezone=True), onupdate=func.now())
 
-
 class FacultyDetails(Base):
     __tablename__ = "Faculty_Details"
 
@@ -35,7 +37,7 @@ class FacultyDetails(Base):
     faculty_name = Column(String, nullable=False)
     faculty_email = Column(String, nullable=False, unique=True)
     faculty_contact_number = Column(String, nullable=False)
-    
+    faculty_profile_picture = Column(String, nullable=True)
     # Foreign key to Institute_Details
     institute_id = Column(String, ForeignKey("Institute_Details.institute_id"), nullable=False)
 
@@ -53,7 +55,7 @@ class ClassDetails(Base):
     class_id = Column(String, primary_key=True, index=True)  
     grade = Column(String, nullable=False)
     division = Column(String, nullable=False)
-    batch = Column(String, nullable=False)
+    batch = Column(String, nullable=True)
 
     institute_id = Column(String, ForeignKey("Institute_Details.institute_id"), nullable=False)
 
@@ -187,23 +189,34 @@ class AttendanceData(Base):
     attendance = relationship("ScheduleAttendance", backref="student_attendance")
     student = relationship("StudentDetails", backref="attendance_records")
 
-from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, func
-from sqlalchemy.orm import relationship
-from database import Base
 
-class LoggerData(Base):
-    __tablename__ = "Logger_Data"
+# ---------------- NOTIFICATIONS ----------------
+class Notifications(Base):
+    __tablename__ = "notifications"
 
-    log_id = Column(String, primary_key=True, index=True)  # e.g., LOG1, LOG2...
-    title = Column(String, nullable=False)
-    message = Column(String, nullable=False)
+    notification_id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_id = Column(String, nullable=False)         # Which user gets this
+    title = Column(String(255), nullable=False)      # Short title
+    message = Column(Text, nullable=False)           # Full message
+    type = Column(String(50))                        # info, warning, success, error
+    is_read = Column(Boolean, default=False)         # Has user seen it?
+    is_active = Column(Boolean, default=True)
+    is_deleted = Column(Boolean, default=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
-    user_id = Column(String, ForeignKey("Login_Authentication.id"), nullable=True)
 
-    isactive = Column(Boolean, default=True)
-    isdelete = Column(Boolean, default=False)
-    createdat = Column(DateTime(timezone=True), server_default=func.now())
-    updatedat = Column(DateTime(timezone=True), onupdate=func.now())
+# ---------------- RECENT ACTIVITY ----------------
+class RecentActivity(Base):
+    __tablename__ = "recent_activity"
 
-    # Relationship with Login_Authentication (User)
-    user = relationship("LoginAuthentication", backref="logs")
+    activity_id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_id = Column(String, nullable=False)             # Who performed the action
+    action_title = Column(String(255), nullable=False)   # e.g. "Attendance Marked"
+    action_detail = Column(Text)                         # Extra details
+    impact_level = Column(String(50))                    # Low, Medium, High
+    number_of_impacted_data = Column(Integer, default=0) # Count of records affected
+    is_active = Column(Boolean, default=True)
+    is_deleted = Column(Boolean, default=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())

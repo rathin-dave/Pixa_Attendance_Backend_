@@ -1,11 +1,17 @@
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Dict
 
 # ---------- LOGIN ----------
 class LoginRequest(BaseModel):
     username: str
     password: str
     role: str
+
+class LoginResponse(BaseModel):
+    success: bool
+    message: str
+    user_id: Optional[str] = None
+
 
 # ---------- FACULTY DASHBOARD ----------
 class FacultyDashboardRequest(BaseModel):
@@ -16,7 +22,8 @@ class FacultyProfileUpdateRequest(BaseModel):
     faculty_name: str
     faculty_contact_number: str
     faculty_email: str
-    password: str
+    profile_image: Optional[str] = None
+
 
 # ---------- ATTENDANCE ----------
 class ProcessedAttendanceUpdateRequest(BaseModel):
@@ -27,11 +34,23 @@ class ProcessingAttendanceRequest(BaseModel):
     operation: str
     images: List[str]
 
+class ProcessingAttendanceDetailRequest(BaseModel):
+    attendance_id: str
+
+class StudentAttendanceStatus(BaseModel):
+    student_id: str
+    status: str
+
 class ManualAttendanceRequest(BaseModel):
-    student_attendance_updated_data: List[dict]
+    attendance_id: str
+    attendance: List[StudentAttendanceStatus]
+    
+class ManualAttendanceGetRequest(BaseModel):
+    attendance_id: str
 
 class ImageUploadRequest(BaseModel):
     images: List[str]
+    attendance_id: str
 
 # ---------- UNSCHEDULED LECTURE ----------
 class UnscheduleLectureRequest(BaseModel):
