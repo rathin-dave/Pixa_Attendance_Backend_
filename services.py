@@ -3,13 +3,83 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models import *
 from schemas import *
-from datetime import datetime, timedelta
-from sqlalchemy import func, case, and_, desc, text   
-from datetime import date
+from datetime import datetime, timedelta, date as _date
+from sqlalchemy import func, case, and_, desc, text
+from collections import Counter
+import os, base64
+from fastapi.responses import FileResponse
+from datetime import datetime, timedelta, date
 from collections import Counter
 import os, base64
 from fastapi.responses import FileResponse
 BASE_DIR = "./Images"
+
+# ----------------- PROCESSED ATTENDANCE DETAIL -----------------
+def process_attendance_detail(req: ProcessedAttendanceDetailRequest, user_id: str, db: Session):
+    # Validate faculty id
+    if not isinstance(user_id, str) or not user_id.upper().startswith("FAC"):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authorized")
+    
+    # Get the schedule attendance record
+    schedule_attendance = db.query(ScheduleAttendance).filter(
+        ScheduleAttendance.attendance_id == req.attendance_id,
+        ScheduleAttendance.isactive == True,
+        ScheduleAttendance.isdelete == False
+    ).first()
+    
+    if not schedule_attendance:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"success": False, "message": "Attendance record not found"}
+        )
+    
+    # Check if status is processed or processing
+    if schedule_attendance.status not in ["Processed", "Processing"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"success": False, "message": "Attendance must be in Processed or Processing state"}
+        )
+    
+    # Update all attendance data records to inactive and deleted
+    db.query(AttendanceData).filter(
+        AttendanceData.attendance_id == req.attendance_id,
+        AttendanceData.isactive == True,
+        AttendanceData.isdelete == False
+    ).update({
+        "isactive": False,
+        "isdelete": True,
+        "updatedat": func.now()
+    })
+    
+    # Update schedule attendance status to Pending
+    schedule_attendance.status = "Pending"
+    schedule_attendance.updatedat = func.now()
+    
+    # Add activity record
+    activity = RecentActivity(
+        user_id=user_id,
+        action_title="Reset Attendance",
+        action_detail=f"Attendance {req.attendance_id} reset to Pending status",
+        impact_level="Medium",
+        number_of_impacted_data=1
+    )
+    db.add(activity)
+    
+    # Add notification
+    notification = Notifications(
+        user_id=user_id,
+        title="Attendance Reset",
+        message=f"Attendance {req.attendance_id} has been reset to Pending status",
+        type="info"
+    )
+    db.add(notification)
+    
+    db.commit()
+    
+    return {
+        "success": True,
+        "message": "Attendance data reset successfully"
+    }
 # ----------------- LOGIN -----------------
 def login(req: LoginRequest, db: Session = Depends(get_db)):
     
@@ -500,11 +570,60 @@ def get_faculty_attendance_record(user_id: str):
 def get_completed_attendance_detail(id: str, user_id: str):
     return {"message": f"completed attendance {id}"}
 
-def get_processed_attendance_detail(id: str, user_id: str):
-    return {"message": f"processed attendance {id}"}
 
-def update_processed_attendance_detail(id: str, req: ProcessedAttendanceUpdateRequest, user_id: str):
-    return {"success": True}
+def update_processed_attendance_detail(attendance_id: str, req: ProcessedAttendanceUpdateRequest, user_id: str):
+    try:
+        # Validate user_id starts with FAC
+        if not user_id.startswith("FAC"):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Unauthorized: Invalid faculty ID"
+            )
+        
+        # Get database session
+        db = next(get_db())
+        
+        # Check if attendance record exists
+        attendance_record = db.query(ScheduleAttendance).filter(
+            ScheduleAttendance.attendance_id == attendance_id,
+            ScheduleAttendance.faculty_id == user_id,
+            ScheduleAttendance.isactive == True,
+            ScheduleAttendance.isdelete == False
+        ).first()
+        
+        if not attendance_record:
+            return {"success": False, "message": "Attendance record not found"}
+            
+        # Update the status in ScheduleAttendance table to "Completed"
+        attendance_record.status = "Completed"
+        
+        # Update attendance data for each student
+        for student_data in req.student_attendance_updated_data:
+            student_id = student_data.get("student_id")
+            attendance_status = student_data.get("status")
+            
+            # Validate attendance status (P/A)
+            if attendance_status not in ["P", "A"]:
+                continue
+                
+            # Update attendance data
+            attendance_data = db.query(AttendanceData).filter(
+                AttendanceData.attendance_id == attendance_id,
+                AttendanceData.student_id == student_id
+            ).first()
+            
+            if attendance_data:
+                # Update using ORM approach
+                attendance_data.attendance_status = attendance_status
+                attendance_data.updatedat = func.now()
+            
+        # Commit changes
+        db.commit()
+        
+        return {"success": True, "message": "Attendance updated successfully"}
+    except Exception as e:
+        db.rollback()
+        return {"success": False, "message": f"Error updating attendance: {str(e)}"}
 
 def get_processing_attendance_detail(req: ProcessingAttendanceDetailRequest, user_id: str, db: Session = Depends(get_db)):
     # Validate user_id starts with FAC
@@ -517,7 +636,7 @@ def get_processing_attendance_detail(req: ProcessingAttendanceDetailRequest, use
     # Get attendance record
     attendance_record = db.query(ScheduleAttendance).filter(
         ScheduleAttendance.attendance_id == req.attendance_id,
-        ScheduleAttendance.status == "processing"
+        ScheduleAttendance.status == "Processing"
     ).first()
     
     if not attendance_record:
@@ -1033,10 +1152,13 @@ def get_faculty_summary(user_id: str, db: Session, start_date: date = None, end_
          ScheduleAttendance.isdelete == False
      ).distinct().all()
 
-    classes_list = [
-        {"class_id": c.class_id, "standard_division_batch": f"{c.grade}-{c.division}-{c.batch}"}
-        for c in classes
-    ]
+    classes_list = []
+    for c in classes:
+        standard_division_batch = f"{c.grade}-{c.division}"
+        if c.batch:
+            standard_division_batch += f"-{c.batch}"
+        classes_list.append({"class_id": c.class_id, "standard_division_batch": standard_division_batch})
+    
 
     # ✅ Lecture stats
     stats = {}
@@ -1080,12 +1202,16 @@ def get_faculty_summary(user_id: str, db: Session, start_date: date = None, end_
 
     for lec in lectures:
         timeslot_str = f"{lec.start_time.strftime('%H:%M')}-{lec.end_time.strftime('%H:%M')}"
+        class_str = f"{lec.grade}-{lec.division}"
+        if lec.batch:
+            class_str += f"-{lec.batch}"
+            
         lecture_info = {
             "date": lec.date,
             "day": lec.day,
             "timeslot": timeslot_str,
             "subject": lec.subject_name,
-            "class": f"{lec.grade}-{lec.division}-{lec.batch}",
+            "class": class_str,
             "status": lec.status,
             "roomnumber": lec.roomnumber,
         }

@@ -1,9 +1,11 @@
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from schemas import *
 import services
 from database import get_db
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import OperationalError
 from datetime import date
 
 app = FastAPI()
@@ -16,6 +18,23 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Database connection error middleware
+@app.middleware("http")
+async def db_connection_error_handler(request: Request, call_next):
+    try:
+        response = await call_next(request)
+        return response
+    except OperationalError:
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={"message": "Server is down. Please try again later."}
+        )
+    except Exception as e:
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={"message": "An error occurred. Please try again later."}
+        )
 
 # ----------------- LOGIN -----------------
 @app.post("/login", response_model=LoginResponse)
@@ -48,9 +67,13 @@ def update_faculty_profile(
 
 
 
-# @app.put("/processed_attendance_detail/{id}")
-# def update_processed_attendance_detail(id: str, req: ProcessedAttendanceUpdateRequest, user_id: str):
-#     return services.update_processed_attendance_detail(id, req, user_id)
+@app.put("/processed_attendance_detail")
+async def update_processed_attendance_detail(req: ProcessedAttendanceUpdateRequest, user_id: str):
+    return services.update_processed_attendance_detail(req.attendance_id, req, user_id)
+
+@app.post("/processed_attendance_detail")
+def process_attendance_detail(user_id: str, req: ProcessedAttendanceDetailRequest, db: Session = Depends(get_db)):
+    return services.process_attendance_detail(req, user_id, db)
 
 @app.post("/processing_attendance_detail")
 def get_processing_attendance_detail(req: ProcessingAttendanceDetailRequest, user_id: str, db: Session = Depends(get_db)):

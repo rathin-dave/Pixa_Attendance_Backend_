@@ -29,6 +29,9 @@ class FacultyProfileUpdateRequest(BaseModel):
 class ProcessedAttendanceUpdateRequest(BaseModel):
     attendance_id: str
     student_attendance_updated_data: List[dict]
+    
+class ProcessedAttendanceDetailRequest(BaseModel):
+    attendance_id: str
 
 class ProcessingAttendanceRequest(BaseModel):
     operation: str
